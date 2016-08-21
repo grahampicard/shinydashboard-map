@@ -1,0 +1,30 @@
+@import 'https://fonts.googleapis.com/css?family=Open+Sans';
+@import 'https://fonts.googleapis.com/css?family=Raleway';
+
+/*
+h4 {
+  font-family: 'Raleway'; 
+  font-weight: bold; 
+  color: #44442d;
+}
+
+.tab-pane {
+  font-family: 'Raleway'; 
+   font-weight: bold; 
+  color: #44442d;
+}
+
+.control-label {
+  font-family: 'Raleway'; 
+   font-weight: bold; 
+  color: #44442d;
+}
+
+p  {
+  font-family: 'Raleway';
+  color: #383838;
+}
+*/
+body {
+  background-color: #fcfbf8;	
+}
