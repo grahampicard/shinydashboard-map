@@ -2,6 +2,7 @@ library(shiny)
 library(plyr)
 library(dplyr)
 library(tidyr)
+library(rCharts)
 library(ggplot2)
 library(googleVis)
 library(shinyBS)
@@ -11,7 +12,8 @@ options(shiny.maxRequestSize = 9*1024^2)
 
 shinyServer(function(input, output, session) {
   source("www/data-processing.R")
-  
+
+
   #### MELT ####    
   data_upload <- reactive({
     infile <- input$cdf_file
@@ -138,64 +140,24 @@ shinyServer(function(input, output, session) {
     updateSelectInput(session, "subject",
                       choices = unique(growth()$Subject))
   })
-
+  
   observe({
     updateSelectInput(session, "growth_season",
                       choices = sort(unique(growth()$Growth_Season),decreasing = TRUE))
   })
-
+  
   observe({
     updateSelectInput(session, "season",
                       choices = sort(unique(status()$Season), decreasing = TRUE))
   })
-
+  
   observe({
     updateSelectInput(session, "grade",
                       choices = sort(unique(rx_growth_quartile_sankey_filtered()$Grade), decreasing = FALSE))
   })
   
   #### PLOTS ####    
-  output$graph_status_overall <- renderPlot(
-    {
-      if (is.null(rx_status_overall())) {
-        return(NULL)
-      }
-      
-      data <- rx_status_overall() %>%
-        filter(School == input$school)
-      
-      ggplot(data = data, aes(x = Subject, y = percent, fill = factor(Quartile))) + 
-        geom_bar(stat = "identity") +
-        geom_text(data = data, aes(x = Subject, y = label_loc, 
-                                   fill = factor(Quartile), label = label),
-                  size = 6, fontface = "bold", color = "#F1F5FB") +
-        scale_fill_manual(values = c("4" = "#255694","3" = "#60A2D7"), 
-                          labels = c("College\nReady","3rd Quartile"),
-                          breaks = c("4","3")) +
-        scale_y_continuous(breaks = round(seq(0,1,.25),2),
-                           labels = c("0%","25%","50%","75%","100%"),
-                           limits = c(0,1)) +      
-        xlab(unique(paste0("\n Grade ",as.character(data$Grade)))) +
-        theme(panel.background = element_blank(),
-              plot.background = element_blank(),
-              legend.title = element_blank(),
-              legend.text = element_text(color="#555555", size = 12),
-              legend.background = element_blank(),
-              legend.key = element_blank(),
-              axis.text.y=element_blank(),
-              axis.text.x=element_text(size = 12),
-              axis.ticks=element_blank(),
-              axis.title.y=element_blank(),
-              axis.title.x=element_text(size = 16),
-              panel.grid.major.y = element_blank(),
-              panel.grid.major.x = element_blank(),
-              panel.grid.minor.y = element_blank()
-        )
-    }, 
-    bg = "transparent"
-  )  
-  
-  output$graph_growth_overall <- renderPlot(
+  output$graph_growth_overall <- renderChart2(
     {
       if (is.null(rx_growth_overall())) {
         return(NULL)
@@ -203,49 +165,94 @@ shinyServer(function(input, output, session) {
       
       # Load RX data
       data <- rx_growth_overall() %>%
-        filter(School == input$school)
+        filter(School == input$school) %>% 
+        ungroup() %>% 
+        select(Subject, growth, total) %>%
+        spread(growth, total) %>% 
+        select(Subject, Typical = Typ_not, Tiered)
       
       # Graph    
-      ggplot(data = data, aes(x = factor(Subject), y = total, 
-                              fill = factor(growth))) + 
-        geom_bar(stat = 'identity') +
-        geom_text(data = data, aes(x=factor(Subject), y = label_loc, 
-                                   label = total_label), size = 6, 
-                  fontface="bold", color="#ebf1f9") +
+      chart_width <- session$clientData$output_plot_growth_overall_dim_width
+      
+      go <- rCharts:::Highcharts$new()
+      go$chart(type = "column", width = chart_width, backgroundColor = 'rgba(255, 255, 255, 0.1)')
+      go$title(text = "Growth Summary")
+      go$plotOptions(column = list(stacking = "normal", 
+                                   dataLabels=list(enabled=TRUE, 
+                                                   formatter = "#! function () {return (Math.round(Math.abs(this.y *100)) >= 10 ?
+                                                   Math.round(Math.abs(this.y *100))+ '%': '') }  !#",
+                                                   style = list(textShadow = '0 0 0px black',
+                                                                fontWeight = 'normal'))))
+      go$xAxis(categories = unique(data$Subject))
+      go$yAxis(title = list(text = "% Meeting Growth Targets"), 
+               max = 1, 
+               labels = list(formatter = "#! function() { return this.value * 100 + '%'; } !#"),
+               stackLabels = list(enabled = TRUE, 
+                                  formatter = "#! function() { return Math.round(this.total * 100) + '%'; } !#",
+                                  style = list(textShadow = '0 0 0px black',
+                                               fontWeight = 'normal',
+                                               color = 'gray')))
+      go$data(data)
+      go$colors(c("#BCD631","#439539"))
+      go$tooltip(formatter = "#! function() {return Math.round(this.y *100) + '%' } !#")
+      go$legend(layout = "vertical")
+      go$exporting(enabled = T)
+
+      return(go)
+    }
+  )  
+
+  output$graph_status_overall <- renderChart2(
+    {
+      if (is.null(rx_status_overall())) {
+        return(NULL)
+      }
+      
+      data <- rx_status_overall() %>%
+        filter(School == input$school) %>%
+        ungroup() %>%  
+        select(Subject, Quartile, percent) %>%
+        spread(Quartile, percent) %>%
+        rename(`3rd Quartile` = `3`, `College Ready` = `4`) %>%
+        select(Subject, `College Ready`, `3rd Quartile`)
+
+      top_grade <- rx_status_overall() %>% 
+        ungroup() %>%
+        filter(School == input$school) %>% 
+        select(Grade) %>%
+        unique() 
         
-        # Scales      
-        scale_fill_manual(values = c("Typ_not" = "#BCD07A","Tiered" = "#3C9250"),
-                          labels = c("Typical", "Tiered"),
-                          breaks = c("Typ_not", "Tiered")) +
-        scale_y_continuous(breaks = round(seq(0,1,.25),2),
-                           labels = c("0%","25%","50%","75%","100%"),
-                           limits = c(0,1)) +
-        
-        # Labels
-        ylab("% Meeting Target") +
-        xlab("\n All Grades") +      
-        
-        # Formatting
-        theme(panel.background = element_blank(),
-              plot.background = element_blank(),
-              legend.title = element_blank(),
-              legend.text = element_text(color="#555555", size = 12),
-              legend.background = element_blank(),
-              legend.key = element_blank(),
-              axis.text.y=element_blank(),
-              axis.text.x=element_text(size = 12),
-              axis.ticks=element_blank(),
-              axis.title.y=element_blank(),
-              axis.title.x=element_text(size = 16),
-              panel.grid.major.y = element_blank(),
-              panel.grid.major.x = element_blank(),
-              panel.grid.minor.y = element_blank()
-        )
-    }, 
-    bg = "transparent"
+      chart_width <- session$clientData$output_plot_growth_overall_dim_width
+    
+      so <- rCharts:::Highcharts$new()
+      
+      so$chart(type = "column", width = chart_width, backgroundColor = 'rgba(255, 255, 255, 0.1)')
+      so$plotOptions(column = list(stacking = "normal", 
+                                   dataLabels=list(enabled=TRUE, 
+                                                   formatter = "#! function () {return (Math.round(Math.abs(this.y *100)) >= 10 ?
+                                                   Math.round(Math.abs(this.y *100))+ '%': '') }  !#",
+                                                   style = list(textShadow = '0 0 0px black',
+                                                                fontWeight = 'normal'))))
+      so$xAxis(categories = unique(data$Subject))
+      so$data(data)
+      so$title(text = paste("Grade",top_grade,"Exiting Status"))
+      so$colors(c('#255694','#60A2D7'))
+      so$legend(layout = "vertical")
+      so$yAxis(max = 1, 
+               labels = list(formatter = "#! function() { return this.value * 100 + '%'; } !#"),
+               stackLabels = list(enabled = TRUE, 
+                                  formatter = "#! function() { return Math.round(this.total * 100) + '%'; } !#",
+                                  style = list(textShadow = '0 0 0px black',
+                                               fontWeight = 'normal',
+                                               color = 'gray')))
+      so$tooltip(formatter = "#! function() {return Math.round(this.y *100) + '%' } !#")
+      so$exporting(enabled = T)
+      
+      return(so)
+    }
   )  
   
-  output$graph_growth_targets <- renderPlot(
+  output$graph_growth_targets <- renderChart2(
     {
       if (is.null(rx_growth_targets())) {
         return(NULL)
@@ -254,49 +261,45 @@ shinyServer(function(input, output, session) {
       # Data
       data <- rx_growth_targets() %>%
         filter(School == input$school,
-               Growth_Season == input$growth_season)
+               Growth_Season == input$growth_season) %>%
+        ungroup() %>%
+        select(Subject, Grade, total, growth) %>%
+        spread(growth, total) %>% 
+        unite(New_Subject, Subject, Grade, sep = "<br>") %>%
+        select(New_Subject, Typical = Typ_not, Tiered)
       
-      # Plot
-      ggplot(data = data, aes(x = factor(Grade), y = total, fill = factor(growth))) + 
-        geom_bar(stat = 'identity') +
-        geom_text(data = data, aes(x=factor(Grade), y = label_loc, label=total_label), 
-                  size = 5.2, fontface="bold", color="#ebf1f9") +
-        facet_grid(.~Subject) +
-        
-        # Scales
-        scale_fill_manual(values = c("Typ_not" = "#BCD07A","Tiered" = "#3C9250"),
-                          labels = c("Typical", "Tiered"),
-                          breaks = c("Typ_not", "Tiered")) +
-        scale_y_continuous(breaks = round(seq(0,1,.25),2),
-                           labels = c("0%","25%","50%","75%","100%"),
-                           limits = c(0,1)) +
-        
-        # Labels
-        ylab("% of Matched Students") +
-        xlab("\n Grade") +
-        
-        # Format
-        theme(panel.background = element_blank(),
-              plot.background = element_blank(),
-              legend.title = element_blank(),
-              legend.text = element_text(color="#555555", size = 12),
-              legend.background = element_blank(),
-              legend.key = element_blank(),
-              axis.title.x = element_text(size=16),
-              axis.title.y = element_text(size=12),
-              axis.text=element_text(size=12),
-              axis.ticks.x = element_blank(),              
-              panel.grid.major.y = element_line(color = "#b3b3b3"),
-              panel.grid.major.x = element_blank(),
-              panel.grid.minor.y = element_blank(),
-              strip.text.x = element_text(size=14),
-              strip.background = element_rect(fill = "#f2f2f2")
-        )
-    }, 
-    bg = "transparent"
+      chart_width <- session$clientData$output_plot_growth_targets_dim_width 
+      
+      # Chart      
+      gg <- rCharts:::Highcharts$new()
+      gg$chart(type = "column", width = chart_width, backgroundColor = 'rgba(255, 255, 255, 0.1)')
+      gg$data(data)
+      gg$title(text = "Growth by Grade")      
+      gg$plotOptions(column = list(stacking = "normal", 
+                                   dataLabels=list(enabled=TRUE, 
+                                   formatter = "#! function () {return (Math.round(Math.abs(this.y *100)) >= 10 ?
+                                                   Math.round(Math.abs(this.y *100))+ '%': '') }  !#",
+                                   style = list(textShadow = '0 0 0px black',
+                                                fontWeight = 'normal'))))
+      gg$xAxis(categories = unique(data$New_Subject))
+      gg$yAxis(title = list(text = "% Meeting Growth Target"), max = 1, 
+               labels = list(formatter = "#! function() { return this.value * 100 + '%'; } !#"),
+               stackLabels = list(enabled = TRUE, 
+                                  formatter = "#! function() { return Math.round(this.total * 100) + '%'; } !#",
+                                  style = list(textShadow = '0 0 0px black',
+                                               fontWeight = 'normal',
+                                               color = 'gray')))
+      gg$colors(c("#BCD631","#439539"))
+      gg$legend(layout = "vertical")
+      gg$tooltip(formatter = "#! function() {return Math.round(this.y *100) + '%' } !#")
+      gg$exporting(enabled = T)
+      
+      # Output
+      return(gg) 
+    }
   )  
   
-  output$graph_growth_targets_by_q <- renderPlot(
+  output$graph_growth_by_q <- renderChart2(
     {
       if (is.null(rx_growth_targets_by_q())) {
         return(NULL)
@@ -306,52 +309,43 @@ shinyServer(function(input, output, session) {
       data <- rx_growth_targets_by_q() %>%
         filter(School == input$school,
                Subject == input$subject, 
-               Growth_Season == input$growth_season)      
-      
-      # Plot
-      ggplot() +
-        geom_bar(data = data, aes(x = factor(Start_Q), y = value, 
-                                  fill = factor(Start_Q)), stat = "identity") +
-        facet_grid(.~Grade) +
-        geom_text(data = data, aes(x = factor(Start_Q), y = label_loc, label=label), 
-                  size = 4.5, fontface="bold") +
-        scale_fill_manual(values = c("1" = "#8D8685", "2" = "#CFCCC1",
-                                     "3" = "#60A2D7", "4" = "#255694"), 
-                          labels = c("Bottom Quartile","2nd Quartile",
-                                     "3rd Quartile","College Ready"),
-                          breaks = c("1","2","3","4")) +
-        
-        # adding label
-        ylab("% of Matched Students") +
+               Growth_Season == input$growth_season) %>%
+        mutate(Grade = paste("Grade", Grade)) %>%
+        select(Grade, Start_Q, value) %>%
+        spread(Start_Q, value) %>%
+        rename(`Bottom` = `1`, `2nd` = `2`, `3rd` = `3`, `Top` = `4`)
 
-        ylim(0,1.05) +
-        scale_y_continuous(breaks = round(seq(0,1,.25),2),
-                           labels = c("0%","25%","50%","75%","100%")) +
-        
-        # Formatting
-        theme(panel.background = element_blank(),
-              plot.background = element_blank(),
-              legend.title = element_blank(),
-              legend.text = element_text(color="#555555", size = 12),
-              legend.background = element_blank(),
-              legend.key = element_blank(),
-              legend.position = "bottom",
-              legend.direction = "horizontal",
-              axis.title.x = element_blank(),
-              axis.title.y = element_text(size=12),
-              axis.text.x = element_blank(),
-              axis.ticks.x = element_blank(),
-              panel.grid.major.y = element_line(color = "#b3b3b3"),
-              panel.grid.major.x = element_blank(),
-              panel.grid.minor.y = element_blank(),
-              strip.text.x = element_text(size=14),
-              strip.background = element_rect(fill = "#f2f2f2")
-        )
-    }, 
-    bg = "transparent"
+      if (length(highcharts_data$Grade) == 1) {
+        names  <- list(data$Grade)
+      } else {
+        names <- data$Grade  
+      }
+      
+      chart_width <- session$clientData$output_plot_growth_by_q_dim_width
+      
+      # Create chart
+      gsq <- rCharts:::Highcharts$new()
+      gsq$data(data)
+      gsq$plotOptions(column = list(
+        dataLabels=list(enabled=TRUE, 
+                        formatter = "#! function () {return (Math.round(Math.abs(this.y *100)) >= 10 ?
+                                        Math.round(Math.abs(this.y *100))+ '%': '') }  !#",
+                        style = list(textShadow = '0 0 0px black',
+                        fontWeight = 'normal'))))
+      gsq$chart(type = "column", width = chart_width, backgroundColor = 'rgba(255, 255, 255, 0.1)')
+      gsq$title(text = "Typical Growth by Starting Quartile")
+      gsq$xAxis(categories = names)
+      gsq$yAxis(title = list(text = "% Meeting Typical Growth Target"), max = 1, labels = list(formatter = "#! function() { return this.value * 100 + '%'; } !#"))
+      gsq$tooltip(formatter = "#! function() {return Math.round(this.y *100) + '%' } !#")
+      gsq$colors(c('#8D8685','#CFCCC1','#60A2D7','#255694'))
+      gsq$exporting(enabled = T)
+      # Plot
+      return(gsq)
+      
+    }
   )  
   
-  output$graph_growth_quartile <- renderPlot(
+  output$graph_growth_quartile <- renderChart2(
     {
       if (is.null(rx_growth_quartile())) {
         return(NULL)
@@ -362,62 +356,39 @@ shinyServer(function(input, output, session) {
         filter(School == input$school, 
                Subject == input$subject, 
                Growth_Season == input$growth_season) %>%
-        arrange(display, Quartile)
+        arrange(Grade, display) %>%
+        select(display, Bottom = `1`, `2nd` = `2`, Top = `4`, `3rd` = `3`)
+
+      # Formatting changes      
+      chart_width <- chart_width <- session$clientData$output_plot_graph_growth_quartile_dim_width
+      order <- list(Bottom = 4, `2nd` = 3, `3rd` = 2, Top = 1)
       
-      # subset low and high quartiles for graphs
-      low  <- data %>% 
-        filter(Quartile <= 0) %>%
-        mutate(Quartile = factor(Quartile)) %>%
-        group_by(display) %>%
-        mutate(label_loc = cumsum(total) - (.5 * total))
+      # Plot
+      qs <- rCharts:::Highcharts$new()
+      qs$chart(type = "column", width = chart_width, backgroundColor = 'rgba(255, 255, 255, 0.1)', height = 450)
+      qs$data(data)
+      qs$title(text = "Quartile Shifts")
+      qs$plotOptions(column = list(stacking = "normal", 
+                                  dataLabels=list(enabled=TRUE, 
+                                                  formatter = "#! function () {return (Math.round(Math.abs(this.y *100)) >= 10 ?
+                                                  Math.round(Math.abs(this.y *100))+ '%': '') }  !#",
+                                                  style = list(textShadow = '0 0 0px black',
+                                                               fontWeight = 'normal')))) 
+      qs$xAxis(categories = (unique(data$display)))
+      qs$yAxis(title = list(text = "Size of Quartile"), max = 1, labels = list(formatter = "#! function() { return Math.abs(this.value) * 100 + '%'; } !#"))
+      qs$tooltip(formatter = "#! function() {return Math.round(Math.abs(this.y *100)) + '%' } !#")
+      qs$colors(c('#8D8685','#CFCCC1','#255694','#60A2D7'))
+      qs$legend(layout = "vertical")
+      qs$exporting(enabled = TRUE)
+      qs$params$series <- lapply(qs$params$series, function(d){
+        temp = order[d$name]
+        names(temp) = NULL
+        d$legendIndex = temp
+        return(d)
+      })
       
-      high <- data %>% 
-        filter(Quartile >= 0) %>%
-        mutate(Quartile = factor(Quartile)) %>%
-        group_by(display) %>%
-        mutate(label_loc = cumsum(total) - (.5 * total))      
-      
-      # Create graphs
-      ggplot() +
-        
-        # Titles
-        ylab(label = "% of Matched Students") +
-        xlab("\n Grade") +
-        
-        # Graph Body
-        geom_bar(data=low, aes(x=display, y=total, fill=Quartile), stat="identity") + 
-        geom_bar(data=high, aes(x=display, y=total, fill=Quartile), stat="identity") + 
-        geom_text(data=low, aes(x=display, y=label_loc, fill=Quartile, label=total_label),
-                  size = 6, fontface="bold", color="#F1F5FB") +
-        geom_text(data=high, aes(x=display, y=label_loc, fill=Quartile, label=total_label),
-                  size = 6, fontface = "bold", color = "#F1F5FB") +
-        
-        # Legend
-        scale_fill_manual(values = c("4" = "#255694","3" = "#60A2D7",
-                                     "-2" = "#CFCCC1", "-1" = "#8D8685"), 
-                          labels = c("College Ready","3rd Quartile",
-                                     "2nd Quartile","Bottom Quartile"),
-                          breaks = c("4","3","-2","-1")) +
-        scale_y_continuous(breaks = round(seq(-1,1,.25),2),
-                           labels = c("100%","75%","50%","25%","0%","25%",
-                                      "50%","75%","100%")) +
-        
-        # Formatting
-        theme(panel.background = element_blank(),
-              plot.background = element_blank(),
-              legend.title = element_blank(),
-              legend.text = element_text(color="#555555", size = 12),
-              legend.background = element_blank(),
-              legend.key = element_blank(),
-              axis.title.x = element_text(size=16),
-              axis.title.y = element_text(size=12),
-              axis.ticks.x = element_blank(),              
-              panel.grid.major.y = element_line(color = "#b3b3b3"),
-              panel.grid.major.x = element_blank(),
-              panel.grid.minor.y = element_blank()
-        )
-    }, 
-    bg = "transparent"
+      return(qs)      
+    }
   )    
   
   output$graph_growth_quartile_sankey <- renderGvis(

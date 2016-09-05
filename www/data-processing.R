@@ -161,13 +161,13 @@ rollup_growth_quartile <- function(growth_df) {
   gather(Season, value, -Subject, -School, -Grade, -Id, -Growth_Season) %>%
   separate(col = value, sep = "_", into = c("Quartile", "display"), convert = TRUE) %>%
   group_by(School, Grade, Subject, Growth_Season, Quartile, display) %>%
-  summarise(n = n()) %>%
+  summarise(total = n()) %>%
   group_by(School, Grade, Subject, Growth_Season, display) %>%
-  mutate(total = ifelse(Quartile <= 2, - n / sum(n), n / sum(n)),
-         total_label = ifelse(abs(total) >= .1, paste0(as.character(abs(round(total, 2) * 100)),"%"),""),
-         Quartile = ifelse(Quartile <= 2, -1 * Quartile, Quartile)) %>%
+  mutate(total = total / sum(total)) %>%
+  mutate(total = ifelse(Quartile <= 2, total * -1 , total)) %>%
   ungroup() %>%
-  mutate(display = paste0("Grade ", as.character(Grade), " \n ", display)) 
+  mutate(display = paste0("Grade ", as.character(Grade), "<br>", display)) %>%
+  spread(Quartile, total)
 }
 
 # "Quartile by Grade" page: Sankey chart of 
