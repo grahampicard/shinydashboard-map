@@ -26,7 +26,7 @@ body     <- dashboardBody(useShinyjs(),
                     br(),
                     h2("Welcome to the NWEA MAP Analysis One-Stop!"),
                     p("This is a proof-of-concept, one-stop shop where you explore the NWEA MAP  
-                      results for each school in your district.  Dig into key growth and 
+                      results for each school in your district. Dig into key growth and 
                       achievement metrics to assess the academic health 
                       of each school in your region, download graph image files to 
                       share your on your own, and get database-friendly exports with

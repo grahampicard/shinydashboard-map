@@ -315,7 +315,7 @@ shinyServer(function(input, output, session) {
         spread(Start_Q, value) %>%
         rename(`Bottom` = `1`, `2nd` = `2`, `3rd` = `3`, `Top` = `4`)
 
-      if (length(highcharts_data$Grade) == 1) {
+      if (length(data$Grade) == 1) {
         names  <- list(data$Grade)
       } else {
         names <- data$Grade  

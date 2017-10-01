@@ -1,0 +1,10 @@
+## tests
+melted = melt_cdf(combo_cdf, "Fall")
+status = gen_status(melted)
+growth = gen_growth(status, "Fall")
+rollup1 = rollup_growth_overall(growth, "Prior Fall-Fall")
+rollup2 = rollup_growth_quartile(growth)
+rollup3 = rollup_growth_quartile_sankey(growth)
+rollup4 = rollup_growth_targets(growth)
+rollup5 = rollup_growth_targets_by_q(growth)
+rollup6 = rollup_status_overall(status, "Fall")
